@@ -1,28 +1,32 @@
 'use client';
-import { useState } from 'react';
 import { Button, Checkbox, EduPlatformLogo, Icon, InputBox } from '@/components';
 import { useAuthStore } from '@/store/auth/auth.store';
 import appToast from '@/lib/toast';
+import { useZodForm } from '@/lib/forms/useZodForm';
+import { loginSchema } from '@/lib/validation';
 import { highlights } from './utils';
 
 export default function Login() {
   const { onLogin } = useAuthStore();
-  const [userId, setUserId] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
+  const {
+    register,
+    handleSubmit,
+    setError,
+    formState: { errors, isSubmitting },
+  } = useZodForm(loginSchema);
 
-  const handleLogin = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setError('');
-    const payload = { loginId: userId, password };
-    const result = await onLogin(payload);
+  const onSubmit = handleSubmit(async (values) => {
+    const result = await onLogin({ loginId: values.loginId, password: values.password });
     if (!result.success) {
-      appToast.error(result.message || 'Unable to sign in. Please try again.');
+      const message = result.message || 'Unable to sign in. Please try again.';
+      // Surface the server error inline (root), not just as a toast (LG1).
+      setError('root', { message });
+      appToast.error(message);
       return;
     }
     // On success the store flips status → authenticated; AuthProvider redirects
     // to the role home (single redirect authority).
-  };
+  });
   return (
     <main className="min-h-screen bg-base px-3 py-3 text-text sm:px-6 lg:h-screen lg:overflow-hidden lg:px-8 lg:py-6">
       <div className="mx-auto grid min-h-[calc(100vh-1.5rem)] max-w-[1360px] overflow-hidden rounded-[28px] border border-surfaceSoft bg-surface shadow-[0_24px_80px_rgba(31,41,55,0.08)] lg:h-full lg:min-h-0 lg:grid-cols-[1.05fr_0.95fr]">
@@ -114,7 +118,7 @@ export default function Login() {
                   Secure login
                 </span>
               </div>
-              <form className="mt-6 space-y-4 lg:mt-7 lg:space-y-5" onSubmit={handleLogin}>
+              <form className="mt-6 space-y-4 lg:mt-7 lg:space-y-5" onSubmit={onSubmit} noValidate>
                 <InputBox
                   id="userId"
                   type="text"
@@ -123,9 +127,8 @@ export default function Login() {
                   variant="filled"
                   size="large"
                   required
-                  value={userId}
-                  onChange={(event) => setUserId(event.target.value)}
-                  error={error ? ' ' : undefined}
+                  {...register('loginId')}
+                  error={errors.loginId?.message}
                 />
 
                 <div>
@@ -138,18 +141,30 @@ export default function Login() {
                     variant="filled"
                     className="mt-1.5"
                     size="large"
-                    value={password}
-                    onChange={(event) => setPassword(event.target.value)}
-                    error={error ? error : undefined}
+                    {...register('password')}
+                    error={errors.password?.message}
                   />
                 </div>
+
+                {errors.root?.message && (
+                  <p role="alert" className="text-sm text-danger">
+                    {errors.root.message}
+                  </p>
+                )}
 
                 <div className="flex items-center justify-between gap-3">
                   <Checkbox id="keep-signed-in" label="Keep me signed in" />
                   <span className="text-xs text-textMuted">Protected session</span>
                 </div>
 
-                <Button type="submit" size="medium" label="Sign in" tone="primary" radius="md" />
+                <Button
+                  type="submit"
+                  size="medium"
+                  label="Sign in"
+                  tone="primary"
+                  radius="md"
+                  isLoading={isSubmitting}
+                />
               </form>
               <div className="mt-5 rounded-[22px] border border-surfaceSoft bg-base px-4 py-3 lg:px-5 lg:py-4">
                 <div className="flex items-start gap-3">

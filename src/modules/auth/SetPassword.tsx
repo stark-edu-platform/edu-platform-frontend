@@ -7,91 +7,77 @@ import { useAuthStore } from '@/store/auth/auth.store';
 import constants from '@/constants';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { APP_ROUTES } from '@/constants/routes';
+import { useZodForm } from '@/lib/forms/useZodForm';
+import { setPasswordSchema, passwordRules, getPasswordStrength } from '@/lib/validation';
 
 export default function SetPassword() {
-  const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [isTokenValid, setIsTokenValid] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-
   const { validateSetPasswordToken, setUserPassword } = useAuthStore();
   const router = useRouter();
   const searchParams = useSearchParams();
-
   const token = searchParams.get('token');
 
-  // ✅ Derived state
-  const isDisabled =
-    !(password && confirmPassword && password === confirmPassword) || !isTokenValid || loading;
+  // Token validation is its own flow, separate from the password form fields.
+  const [isTokenValid, setIsTokenValid] = useState(false);
+  const [tokenError, setTokenError] = useState<string | null>(null);
 
-  // ✅ Password strength (basic)
-  const getStrength = () => {
-    if (!password) return 0;
-    if (password.length > 10) return 100;
-    if (password.length > 6) return 60;
-    return 30;
-  };
+  const {
+    register,
+    handleSubmit,
+    watch,
+    setError,
+    formState: { errors, isSubmitting },
+  } = useZodForm(setPasswordSchema);
 
-  const strength = getStrength();
+  const passwordValue = watch('password') ?? '';
+  const strength = getPasswordStrength(passwordValue);
+  const strengthLabel = strength >= 100 ? 'Strong' : strength >= 60 ? 'Medium' : 'Weak';
 
-  // ✅ Verify token
+  // ✅ Verify the invite token on mount.
   useEffect(() => {
-    if (!token) {
-      setError('Invalid or missing token');
-      appToast.error('Invalid or missing token');
-      return;
-    }
-
     const verifyToken = async () => {
+      if (!token) {
+        setTokenError('Invalid or missing token');
+        appToast.error('Invalid or missing token');
+        return;
+      }
+
       const result = await validateSetPasswordToken(token);
 
       if (result?.statusCode !== constants.API_STATUS.OK) {
-        setError(result?.message || 'Invalid or expired token');
+        setTokenError(result?.message || 'Invalid or expired token');
         setIsTokenValid(false);
         appToast.error(result?.message || 'Invalid or expired token');
         return;
       }
 
       setIsTokenValid(true);
-      setError(null);
+      setTokenError(null);
     };
 
     verifyToken();
   }, [token, validateSetPasswordToken]);
 
-  // ✅ Submit handler
-  const onSubmit = async () => {
-    if (!password || !confirmPassword) {
-      appToast.error('Password fields cannot be empty');
-      return;
-    }
-
-    if (password !== confirmPassword) {
-      appToast.error('Passwords do not match');
-      return;
-    }
-
+  // ✅ Submit handler — validation comes from setPasswordSchema via useZodForm.
+  const onSubmit = handleSubmit(async (values) => {
     if (!token) {
-      setError('Invalid or missing token');
+      setTokenError('Invalid or missing token');
       appToast.error('Invalid or missing token');
       return;
     }
 
-    try {
-      setLoading(true);
-      const result = await setUserPassword(token, password);
-      if (result?.statusCode !== constants.API_STATUS.OK) {
-        setError(result?.message || 'Failed to set password');
-        appToast.error(result?.message || 'Failed to set password');
-        return;
-      }
-      appToast.success('Password set successfully! Redirecting...');
-      router.push(APP_ROUTES.login);
-    } finally {
-      setLoading(false);
+    const result = await setUserPassword(token, values.password);
+    if (result?.statusCode !== constants.API_STATUS.OK) {
+      const message = result?.message || 'Failed to set password';
+      setError('root', { message });
+      appToast.error(message);
+      return;
     }
-  };
+
+    appToast.success('Password set successfully! Redirecting...');
+    router.push(APP_ROUTES.login);
+  });
+
+  const headerError = tokenError || errors.root?.message;
 
   return (
     <div className="min-h-screen bg-base flex items-center justify-center px-4">
@@ -103,10 +89,11 @@ export default function SetPassword() {
             Create a strong password to protect your account and continue using the platform.
           </p>
 
+          {/* Advertised rules — rendered from the single password policy source. */}
           <ul className="space-y-3 text-sm text-textMuted">
-            <li>• At least 8 characters</li>
-            <li>• Include uppercase & lowercase</li>
-            <li>• Include numbers & symbols</li>
+            {passwordRules.map((rule) => (
+              <li key={rule.id}>• {rule.label}</li>
+            ))}
           </ul>
         </div>
 
@@ -115,60 +102,78 @@ export default function SetPassword() {
           <div className="max-w-md mx-auto">
             <h2 className="text-2xl font-semibold text-text mb-2">Set Password</h2>
 
-            {/* ✅ Stable text / error */}
-            <p className={`mb-6 ${error ? 'text-danger' : 'text-textLight'}`}>
-              {error || 'Enter your new password below'}
+            {/* ✅ Stable text / token or server error */}
+            <p className={`mb-6 ${headerError ? 'text-danger' : 'text-textLight'}`}>
+              {headerError || 'Enter your new password below'}
             </p>
-            <div className="space-y-4 mb-6">
-              <InputBox
-                label="New Password"
-                id="password"
-                type="password"
-                placeholder="Enter new password"
-                variant="filled"
-                className="mt-1.5"
-                value={password}
-                disabled={!isTokenValid}
-                onChange={(e) => setPassword(e.target.value)}
-              />
 
-              {/* Confirm Password */}
-              <InputBox
-                label="Confirm Password"
-                id="confirmPassword"
-                type="password"
-                placeholder="Confirm your password"
-                variant="filled"
-                className="mt-1.5"
-                value={confirmPassword}
-                disabled={!isTokenValid}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-              />
-            </div>
+            <form onSubmit={onSubmit} noValidate>
+              <div className="space-y-4 mb-6">
+                <InputBox
+                  label="New Password"
+                  id="password"
+                  type="password"
+                  placeholder="Enter new password"
+                  variant="filled"
+                  className="mt-1.5"
+                  disabled={!isTokenValid}
+                  {...register('password')}
+                  error={errors.password?.message}
+                />
 
-            {/* Password Strength */}
-            <div>
-              <div className="h-2 w-full bg-surfaceSoft rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-primary transition-all"
-                  style={{ width: `${strength}%` }}
+                {/* Confirm Password */}
+                <InputBox
+                  label="Confirm Password"
+                  id="confirmPassword"
+                  type="password"
+                  placeholder="Confirm your password"
+                  variant="filled"
+                  className="mt-1.5"
+                  disabled={!isTokenValid}
+                  {...register('confirmPassword')}
+                  error={errors.confirmPassword?.message}
                 />
               </div>
-              <p className="text-xs text-textMuted mt-1">
-                Password strength:{' '}
-                {strength === 100 ? 'Strong' : strength === 60 ? 'Medium' : 'Weak'}
-              </p>
-            </div>
-            <Button
-              tone="primary"
-              type="button"
-              reaponsive
-              size="large"
-              disabled={isDisabled}
-              isLoading={loading}
-              label="Set Password"
-              onClick={onSubmit}
-            />
+
+              {/* Password Strength — driven by the real policy */}
+              <div>
+                <div className="h-2 w-full bg-surfaceSoft rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-primary transition-all"
+                    style={{ width: `${strength}%` }}
+                  />
+                </div>
+                <p className="text-xs text-textMuted mt-1">Password strength: {strengthLabel}</p>
+              </div>
+
+              {/* Per-rule live feedback matching the advertised policy */}
+              <ul className="space-y-1.5 mt-3 mb-6">
+                {passwordRules.map((rule) => {
+                  const passed = rule.test(passwordValue);
+                  return (
+                    <li
+                      key={rule.id}
+                      className={`flex items-center gap-2 text-xs ${
+                        passed ? 'text-primary' : 'text-textMuted'
+                      }`}
+                    >
+                      <span aria-hidden="true">{passed ? '✓' : '○'}</span>
+                      {rule.label}
+                    </li>
+                  );
+                })}
+              </ul>
+
+              <Button
+                tone="primary"
+                type="submit"
+                reaponsive
+                size="large"
+                disabled={!isTokenValid}
+                isLoading={isSubmitting}
+                label="Set Password"
+              />
+            </form>
 
             {/* Footer */}
             <p className="text-xs text-textMuted mt-6 text-center">

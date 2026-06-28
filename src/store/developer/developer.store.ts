@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import helper from '@/utils/helper';
 import developerService from './developer.services';
 import { FetchSchoolsResponse, School } from './developer.type';
+import { registerResettable } from '@/store/reset-registry';
 
 interface DeveloperState {
   schoolsById: Record<string, School>;
@@ -10,11 +11,18 @@ interface DeveloperState {
   hasFetchedSchools: boolean;
   fetchSchools: () => Promise<FetchSchoolsResponse>;
   clearSchools: () => void;
+  reset: () => void;
 }
 
 const initialData = {
   schoolsById: {},
   schoolIds: [],
+};
+
+const emptyState = {
+  ...initialData,
+  isFetchingSchools: false,
+  hasFetchedSchools: false,
 };
 
 export const useDeveloperStore = create<DeveloperState>()((set) => ({
@@ -53,10 +61,13 @@ export const useDeveloperStore = create<DeveloperState>()((set) => ({
   },
 
   clearSchools: () => {
-    set({
-      ...initialData,
-      isFetchingSchools: false,
-      hasFetchedSchools: false,
-    });
+    set({ ...emptyState });
+  },
+
+  reset: () => {
+    set({ ...emptyState });
   },
 }));
+
+// Participate in the global client-state wipe (logout / unrecoverable 401).
+registerResettable(() => useDeveloperStore.getState().reset());

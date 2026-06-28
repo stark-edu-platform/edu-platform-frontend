@@ -13,7 +13,7 @@ Auth orchestration is fragmented and race-prone:
 
 > **Verified still current (2026-06-28):** all three refresh single-flights, the four navigation call-sites, and the divergent `isAuthenticated`/`isBootstrapping`/`hasBootstrapped` booleans exist as described; `session.client.ts` and `resolveRedirect()` do not exist. None of the consolidation is done — the full PRP stands.
 
-> **Middleware caveat:** `src/proxy.ts` is **not** named `middleware.ts` and is referenced nowhere, so Next's middleware convention almost certainly does **not** pick it up — the cookie gate likely does not run today. If the cookie-gate is meant to run, this PRP must rename `src/proxy.ts` → `middleware.ts` (or configure Next's proxy-file rename) so the middleware actually executes. (PRP-08 wires the matcher to the route-access source of truth and depends on this rename landing.)
+> **Middleware caveat — CORRECTED (Next 16):** the earlier worry that `src/proxy.ts` is inert was wrong. **Next 16 renamed the `middleware` file convention to `proxy`** (verified in `next@16.2.1`: `MIDDLEWARE_FILENAME='middleware'`, `PROXY_FILENAME='proxy'`; `middleware` is deprecated and Next throws if both files exist). So `src/proxy.ts` exporting `proxy()` + `config.matcher` **is** the live, current convention and the cookie gate **does** run today. Do **not** rename it to `middleware.ts`. This PRP does not touch `proxy.ts`; PRP-08 just reconciles its `config.matcher` against the route-access source of truth.
 
 ## 2. Goal & non-goals
 

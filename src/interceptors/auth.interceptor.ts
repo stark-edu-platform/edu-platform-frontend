@@ -1,19 +1,16 @@
 import { AxiosInstance, InternalAxiosRequestConfig } from 'axios';
-import { getAccessToken, useAuthStore } from '@/store/auth/auth.store';
-import { APP_ROUTES } from '@/constants/routes';
+import { getAccessToken, refreshSession } from '@/store/auth/session.client';
+import { resetAllClientState } from '@/store/reset-registry';
+
 interface RetryableRequestConfig extends InternalAxiosRequestConfig {
   _retry?: boolean;
 }
-let refreshPromise: Promise<string | undefined> | null = null;
 
-const isAuthRoute = (url?: string) => {
-  if (!url) {
-    return false;
-  }
-  return (
-    url.includes('/auth/login') || url.includes('/auth/refresh') || url.includes('/auth/logout')
-  );
-};
+// Exact-match set (no substring matching). These endpoints must never trigger a
+// refresh-and-retry: refresh/logout are the refresh machinery itself, and login
+// failures are credential errors, not expired sessions.
+const AUTH_PATHS = new Set(['/auth/login', '/auth/refresh', '/auth/logout']);
+const isAuthRoute = (url?: string): boolean => !!url && AUTH_PATHS.has(url);
 
 export const setupApiInterceptors = (client: AxiosInstance): void => {
   client.interceptors.request.use((config) => {
@@ -36,34 +33,21 @@ export const setupApiInterceptors = (client: AxiosInstance): void => {
       ) {
         originalRequest._retry = true;
 
-        try {
-          if (!refreshPromise) {
-            refreshPromise = useAuthStore
-              .getState()
-              .onRefresh()
-              .then(() => getAccessToken());
-          }
-
-          const newToken = await refreshPromise;
-          refreshPromise = null;
-
-          if (newToken) {
-            originalRequest.headers = originalRequest.headers ?? {};
-            originalRequest.headers.Authorization = `Bearer ${newToken}`;
-            return client(originalRequest);
-          }
-        } catch (refreshError) {
-          refreshPromise = null;
-          useAuthStore.getState().clearSession();
-          if (typeof window !== 'undefined') {
-            window.location.replace(APP_ROUTES.login);
-          }
-          return Promise.reject(refreshError);
+        // Single source of truth for refresh; everyone shares one in-flight call.
+        const token = await refreshSession();
+        if (token) {
+          originalRequest.headers = originalRequest.headers ?? {};
+          originalRequest.headers.Authorization = `Bearer ${token}`;
+          return client(originalRequest);
         }
+
+        // Unrecoverable: wipe all client state and let AuthProvider navigate.
+        // (No window.location.replace here — redirects have a single authority.)
+        resetAllClientState();
       }
 
       if (error.response?.status === 401 && isAuthRoute(originalRequest?.url)) {
-        useAuthStore.getState().clearSession();
+        resetAllClientState();
       }
 
       return Promise.reject(error);

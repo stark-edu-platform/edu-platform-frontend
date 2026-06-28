@@ -1,45 +1,37 @@
 import { create } from 'zustand';
-import axios from 'axios';
 import { User } from '@/types/user.type';
 import { ErrorResponse } from '@/types/api.types';
+import { SessionStatus } from '@/types/session.types';
 import authService from './auth.services';
 import helper from '@/utils/helper';
 import { LoginPayload, FetchUserResponse } from './auth.type';
-
-let accessTokenMemory: string | undefined;
-let bootstrapPromise: Promise<boolean> | null = null;
-
-export const getAccessToken = () => accessTokenMemory;
-export const setAccessToken = (token?: string) => {
-  accessTokenMemory = token;
-};
+import { getAccessToken, setAccessToken, refreshSession } from './session.client';
+import { registerResettable, resetAllClientState } from '@/store/reset-registry';
 
 interface AuthState {
   user: User | null;
-  isAuthenticated: boolean;
-  isBootstrapping: boolean;
-  hasBootstrapped: boolean;
+  status: SessionStatus;
   onLogin: (credentials: LoginPayload) => Promise<FetchUserResponse | ErrorResponse>;
-  onRefresh: (options?: { silent?: boolean }) => Promise<boolean>;
   bootstrapAuth: () => Promise<boolean>;
   fetchMe: () => Promise<FetchUserResponse | ErrorResponse>;
   clearSession: () => void;
+  reset: () => void;
   logout: () => Promise<ErrorResponse | void>;
   validateSetPasswordToken: (token: string) => Promise<FetchUserResponse | ErrorResponse>;
   setUserPassword: (token: string, password: string) => Promise<FetchUserResponse | ErrorResponse>;
 }
 
-const initialData = {
+const anonymousState = {
   user: null,
-  isAuthenticated: false,
+  status: 'anonymous' as SessionStatus,
 };
 
 export const useAuthStore = create<AuthState>()((set, get) => ({
-  ...initialData,
-  isBootstrapping: false,
-  hasBootstrapped: false,
+  user: null,
+  status: 'unknown',
 
   onLogin: async (credentials) => {
+    set({ status: 'authenticating' });
     try {
       const response = await authService.login(credentials);
       const result = helper.successResponse(response, 'Login successful');
@@ -47,12 +39,10 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
       const profile = await get().fetchMe();
       if (!profile.success) {
         get().clearSession();
-        return profile;
       }
       return profile;
     } catch (error) {
-      setAccessToken(undefined);
-      set({ ...initialData });
+      get().clearSession();
       return helper.errorResponse(error);
     }
   },
@@ -61,76 +51,41 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
     try {
       const response = await authService.fetchMe();
       const result = helper.successResponse(response, 'Profile fetched successfully');
-      set({
-        user: result?.data?.user,
-        isAuthenticated: true,
-        hasBootstrapped: true,
-      });
+      // "Token but no user" must never read as authenticated.
+      set({ user: result?.data?.user ?? null, status: 'authenticated' });
       return result;
     } catch (error) {
       console.error('Fetching profile failed:', error);
-      setAccessToken(undefined);
-      set({ ...initialData });
+      get().clearSession();
       return helper.errorResponse(error, 'Failed to fetch profile');
     }
   },
 
-  onRefresh: async (options) => {
-    try {
-      const response = await authService.refreshToken();
-      const result = helper.successResponse(response, 'Token refreshed successfully');
-      setAccessToken(result?.data?.accessToken);
-      set((state) => ({
-        user: state.user,
-        isAuthenticated: true,
-        hasBootstrapped: state.hasBootstrapped,
-      }));
-      return true;
-    } catch (error) {
-      const isExpectedRefreshMiss = axios.isAxiosError(error) && error.response?.status === 401;
+  bootstrapAuth: async () => {
+    // Bootstrap runs once. The synchronous status flip below dedupes re-entry;
+    // the actual network refresh is deduped by refreshSession's single-flight.
+    if (get().status !== 'unknown') {
+      return get().status === 'authenticated';
+    }
+    set({ status: 'authenticating' });
 
-      if (!options?.silent && !isExpectedRefreshMiss) {
-        console.error('Token refresh failed:', error);
-      }
-      setAccessToken(undefined);
-      set({ ...initialData });
+    const token = getAccessToken() ?? (await refreshSession());
+    if (!token) {
+      set({ ...anonymousState });
       return false;
     }
-  },
 
-  bootstrapAuth: async () => {
-    if (get().hasBootstrapped) {
-      return get().isAuthenticated;
-    }
-    if (bootstrapPromise) {
-      return bootstrapPromise;
-    }
-    set({ isBootstrapping: true });
-
-    bootstrapPromise = (async () => {
-      try {
-        if (!getAccessToken()) {
-          const didRefresh = await get().onRefresh({ silent: true });
-          if (!didRefresh) {
-            set({ hasBootstrapped: true });
-            return false;
-          }
-        }
-
-        const profile = await get().fetchMe();
-        return profile.success;
-      } finally {
-        set({ isBootstrapping: false, hasBootstrapped: true });
-        bootstrapPromise = null;
-      }
-    })();
-
-    return bootstrapPromise;
+    const profile = await get().fetchMe();
+    return profile.success;
   },
 
   clearSession: () => {
     setAccessToken(undefined);
-    set({ ...initialData, hasBootstrapped: true });
+    set({ ...anonymousState });
+  },
+
+  reset: () => {
+    get().clearSession();
   },
 
   logout: async () => {
@@ -139,9 +94,11 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
     } catch (error) {
       return helper.errorResponse(error, 'Logout failed');
     } finally {
-      get().clearSession();
+      // Wipe every feature store + the query cache, not just auth.
+      resetAllClientState();
     }
   },
+
   validateSetPasswordToken: async (token: string) => {
     try {
       const response = await authService.validateSetPasswordToken(token);
@@ -150,6 +107,7 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
       return helper.errorResponse(error, 'Invalid or expired token');
     }
   },
+
   setUserPassword: async (token: string, password: string) => {
     try {
       const response = await authService.setPassword(token, password);
@@ -159,3 +117,6 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
     }
   },
 }));
+
+// Participate in the global client-state wipe (logout / unrecoverable 401).
+registerResettable(() => useAuthStore.getState().reset());

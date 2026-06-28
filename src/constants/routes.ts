@@ -1,6 +1,7 @@
 export const APP_ROUTES = {
   home: '/',
   login: '/login',
+  setPassword: '/set-password',
   profile: '/profile',
   user: {
     dashboard: '/dashboard',

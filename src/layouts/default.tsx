@@ -1,10 +1,11 @@
 'use client';
-import { ReactNode, useEffect, useMemo, useState } from 'react';
+import { ReactNode, useEffect, useMemo } from 'react';
 import { APP_ROUTES } from '@/constants/routes';
 import { usePathname, useRouter } from 'next/navigation';
 import { getMenuList } from '../constants/project.menu';
 import { Header, MobileDrawer, Sidebar, ProfileActions, UtilityActions } from '@/components/layout';
 import { useAuthStore } from '@/store/auth/auth.store';
+import { useUiStore } from '@/store/ui.store';
 
 const getUtilityPageMeta = (pathname: string) => {
   if (pathname === APP_ROUTES.profile) {
@@ -30,7 +31,9 @@ export default function Layout({ children }: { children: ReactNode }) {
   const { user, logout } = useAuthStore();
   const role = user?.systemRole?.toUpperCase() === 'DEVELOPER' ? 'developer' : 'user';
   const menu = useMemo(() => getMenuList(role), [role]);
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const isMobileMenuOpen = useUiStore((state) => state.isMobileMenuOpen);
+  const closeMobileMenu = useUiStore((state) => state.closeMobileMenu);
+  const toggleMobileMenu = useUiStore((state) => state.toggleMobileMenu);
   useEffect(() => {
     for (const item of menu) {
       router.prefetch(item.path);
@@ -46,7 +49,7 @@ export default function Layout({ children }: { children: ReactNode }) {
   const profileActions = ProfileActions.map((action) => ({
     ...action,
     onSelect: async () => {
-      setIsMobileMenuOpen(false);
+      closeMobileMenu();
       if (action.label === 'Logout') {
         // AuthProvider's resolveRedirect routes to /login once status → anonymous.
         await logout();
@@ -73,7 +76,7 @@ export default function Layout({ children }: { children: ReactNode }) {
             activeItem={activeItem}
             utilityPageMeta={utilityPageMeta}
             utilityActions={UtilityActions}
-            onMenuToggle={() => setIsMobileMenuOpen((current) => !current)}
+            onMenuToggle={toggleMobileMenu}
             isMobileMenuOpen={isMobileMenuOpen}
             profileActions={profileActions}
             userName={userName}
@@ -86,14 +89,14 @@ export default function Layout({ children }: { children: ReactNode }) {
         </div>
       </div>
 
-      <MobileDrawer isOpen={isMobileMenuOpen} onClose={() => setIsMobileMenuOpen(false)}>
+      <MobileDrawer isOpen={isMobileMenuOpen} onClose={closeMobileMenu}>
         <Sidebar
           menu={menu}
           pathname={pathname}
           userName={userName}
           userTitle={userTitle}
           userInitials={userInitials}
-          onNavigate={() => setIsMobileMenuOpen(false)}
+          onNavigate={closeMobileMenu}
         />
       </MobileDrawer>
     </div>

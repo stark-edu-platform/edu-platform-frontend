@@ -48,8 +48,8 @@ export const getSchoolColumns = (): GridColumn[] => {
   ];
 };
 
-export const getSchoolDataset = (schoolById: Record<string, School>) => {
-  return Object.values(schoolById).map((school: School) => {
+export const getSchoolDataset = (schools: School[]) => {
+  return schools.map((school: School) => {
     return {
       ...school,
       _id: school?.schoolId,

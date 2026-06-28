@@ -36,7 +36,9 @@ export const successResponse = <T>(
     message: response.data?.message ?? defaultMessage,
     success: true,
     statusCode: response.status,
-    data: response.data?.data ?? (response.data as T),
+    // Backend always returns the { success, message, data } envelope, so read the
+    // payload directly rather than casting the whole response body as T.
+    data: response.data?.data as T,
   };
 };
 

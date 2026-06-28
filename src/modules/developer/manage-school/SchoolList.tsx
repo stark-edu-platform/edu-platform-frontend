@@ -1,16 +1,11 @@
 'use client';
 import { MainWrapper, DataGrid } from '@/components';
 import { getSchoolColumns, getSchoolDataset } from './utils';
-import { useDeveloperStore } from '@/store/developer/developer.store';
-import { useQuery } from '@tanstack/react-query';
+import { useSchoolsQuery } from '@/store/developer/developer.queries';
 export default function SchoolList() {
   const columns = getSchoolColumns();
-  const { schoolsById, fetchSchools } = useDeveloperStore();
-  const { isLoading } = useQuery({
-    queryKey: ['schools'],
-    queryFn: () => fetchSchools(),
-  });
-  const dataset = getSchoolDataset(schoolsById);
+  const { data: schools = [], isLoading } = useSchoolsQuery();
+  const dataset = getSchoolDataset(schools);
   return (
     <MainWrapper
       tobBar

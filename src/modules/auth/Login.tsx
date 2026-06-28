@@ -2,14 +2,11 @@
 import { useState } from 'react';
 import { Button, Checkbox, EduPlatformLogo, Icon, InputBox } from '@/components';
 import { useAuthStore } from '@/store/auth/auth.store';
-import { useRouter } from 'next/navigation';
-import { getHomeRouteForSystemRole } from '@/lib/auth-redirect';
 import appToast from '@/lib/toast';
 import { highlights } from './utils';
 
 export default function Login() {
   const { onLogin } = useAuthStore();
-  const router = useRouter();
   const [userId, setUserId] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -23,10 +20,8 @@ export default function Login() {
       appToast.error(result.message || 'Unable to sign in. Please try again.');
       return;
     }
-    if (result.success && 'data' in result) {
-      router.push(getHomeRouteForSystemRole(result.data.user.systemRole));
-      return;
-    }
+    // On success the store flips status → authenticated; AuthProvider redirects
+    // to the role home (single redirect authority).
   };
   return (
     <main className="min-h-screen bg-base px-3 py-3 text-text sm:px-6 lg:h-screen lg:overflow-hidden lg:px-8 lg:py-6">

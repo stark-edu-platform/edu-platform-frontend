@@ -5,7 +5,6 @@ import { usePathname, useRouter } from 'next/navigation';
 import { getMenuList } from '../constants/project.menu';
 import { Header, MobileDrawer, Sidebar, ProfileActions, UtilityActions } from '@/components/layout';
 import { useAuthStore } from '@/store/auth/auth.store';
-import { getHomeRouteForSystemRole } from '@/lib/auth-redirect';
 
 const getUtilityPageMeta = (pathname: string) => {
   if (pathname === APP_ROUTES.profile) {
@@ -39,15 +38,6 @@ export default function Layout({ children }: { children: ReactNode }) {
   }, [menu, router]);
   const activeItem = menu.find((item) => item.path === pathname);
   const utilityPageMeta = getUtilityPageMeta(pathname);
-  useEffect(() => {
-    if (!user?.systemRole) {
-      return;
-    }
-
-    if (pathname === APP_ROUTES.user.dashboard && user.systemRole.toUpperCase() === 'DEVELOPER') {
-      router.replace(getHomeRouteForSystemRole(user.systemRole));
-    }
-  }, [pathname, router, user?.systemRole]);
 
   const userName = user?.name ?? 'User';
   const userTitle =
@@ -58,8 +48,8 @@ export default function Layout({ children }: { children: ReactNode }) {
     onSelect: async () => {
       setIsMobileMenuOpen(false);
       if (action.label === 'Logout') {
+        // AuthProvider's resolveRedirect routes to /login once status → anonymous.
         await logout();
-        router.replace(APP_ROUTES.login);
         return;
       }
     },

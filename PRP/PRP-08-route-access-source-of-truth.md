@@ -10,7 +10,7 @@
 - `isProtectedAppPath()` in `src/lib/auth-redirect.ts:11` (hardcoded prefixes),
 - implicitly in `src/constants/routes.ts` (`APP_ROUTES`).
 
-> **Middleware likely inert:** `src/proxy.ts` is not named `middleware.ts` and is referenced nowhere, so Next almost certainly never runs it (see PRP-06). This source-of-truth work must therefore also **rename/wire the middleware** (`src/proxy.ts` → `middleware.ts`, or configure Next's proxy-file rename) and make its `config.matcher` actually cover the real protected prefixes — otherwise the matcher this PRP centralizes governs a file that never executes.
+> **CORRECTED (Next 16):** `src/proxy.ts` is **not** inert. Next 16 renamed the `middleware` file convention to `proxy` (verified in `next@16.2.1`), so `src/proxy.ts` (exporting `proxy()` + `config.matcher`) is the live convention and runs today. Do **not** rename it to `middleware.ts` — `middleware` is deprecated and Next errors if both files exist. This PRP therefore keeps `proxy.ts` and only reconciles its `config.matcher` to cover the real protected prefixes.
 
 ## 2. Goal & non-goals
 
@@ -27,13 +27,13 @@
 
 1. Add `src/constants/route-access.ts` built from `APP_ROUTES` (single declaration of public vs authed prefixes).
 2. Rewrite `isProtectedAppPath` (`auth-redirect.ts`) to delegate to the map.
-3. Rename `src/proxy.ts` → `src/middleware.ts` (or configure Next's proxy-file rename) so the middleware actually runs (see PRP-06), and update it to import the matcher list (or the prefix constants) from `route-access.ts`; keep the exported `config.matcher` a static array.
+3. Keep `src/proxy.ts` (the live Next 16 convention — do not rename). Update its body to read `isPublicPath` from `route-access.ts`. **The `config.matcher` must stay a literal array** — Next extracts it from the AST (`extractExportedConstValue`), so an imported/computed value is silently ignored. To honor the single-source intent without violating that, add a module-load dev assertion in `proxy.ts` that the literal matcher covers `PROTECTED_PREFIXES`, so drift fails loudly instead of silently.
 4. Reconcile the existing matcher (`/`, `/login`, `/developer/:path*`, `/school/:path*`, `/student/:path*`, `/teacher/:path*`, `/profile/:path*`, `/dashboard/:path*`) with `APP_ROUTES` — remove paths that don't exist, add any missing — so the matcher covers the real protected prefixes.
 
 ## 5. Files added / changed
 
 - **Add:** `src/constants/route-access.ts`
-- **Edit:** `src/lib/auth-redirect.ts`, `src/proxy.ts` (rename → `src/middleware.ts` so it runs)
+- **Edit:** `src/constants/routes.ts` (add `setPassword`), `src/lib/auth-redirect.ts` (delegate `isProtectedAppPath`), `src/proxy.ts` (read route-access + reconcile matcher + dev drift-guard; **not** renamed)
 
 ## 6. Acceptance criteria
 
